@@ -56,7 +56,10 @@ export default function Home() {
   const handleGoogleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin }
+      options: { 
+        // Vercel에서 실행 중일 때는 Vercel 주소로, 내 컴퓨터일 때는 localhost로 자동 지정됩니다.
+        redirectTo: window.location.origin 
+      }
     });
   };
 
