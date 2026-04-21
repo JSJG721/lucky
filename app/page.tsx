@@ -2,41 +2,47 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/src/lib/supabase';
+import { User } from '@supabase/supabase-js';
 
 export default function Home() {
+  const [user, setUser] = useState<User | null>(null);
   const [selectedNumbers, setSelectedNumbers] = useState<number[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [winningNumbers, setWinningNumbers] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(''); // 타이머 상태
+  const [timeLeft, setTimeLeft] = useState('');
 
   useEffect(() => {
+    // 1. 현재 로그인 세션 확인
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // 2. 로그인 상태 변화 감지
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
     fetchData();
-    
-    // 타이머 시작 (1초마다 업데이트)
     const timer = setInterval(calculateTimeLeft, 1000);
-    return () => clearInterval(timer);
+    
+    return () => {
+      clearInterval(timer);
+      subscription.unsubscribe();
+    };
   }, []);
 
-  // 21:00까지 남은 시간 계산 로직
+  // 타이머 계산 함수
   const calculateTimeLeft = () => {
     const now = new Date();
     const target = new Date();
-    target.setHours(21, 0, 0, 0); // 오늘 밤 9시
-
-    // 만약 지금이 밤 9시 이후라면 다음 날 밤 9시로 설정
-    if (now > target) {
-      target.setDate(target.getDate() + 1);
-    }
-
+    target.setHours(21, 0, 0, 0); 
+    if (now > target) target.setDate(target.getDate() + 1);
     const diff = target.getTime() - now.getTime();
     const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
     const m = Math.floor((diff / (1000 * 60)) % 60);
     const s = Math.floor((diff / 1000) % 60);
-
-    setTimeLeft(
-      `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-    );
+    setTimeLeft(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
   };
 
   const fetchData = async () => {
@@ -45,6 +51,18 @@ export default function Home() {
 
     const { data: drawData } = await supabase.from('lucky_draws').select('*').order('created_at', { ascending: false });
     if (drawData) setHistory(drawData);
+  };
+
+  const handleGoogleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin }
+    });
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.location.reload();
   };
 
   const toggleNumber = (n: number) => {
@@ -65,9 +83,13 @@ export default function Home() {
   };
 
   const handleSubmit = async () => {
+    if (!user) return alert('로그인이 필요합니다!');
     if (selectedNumbers.length !== 5) return alert('5개 번호를 선택해주세요!');
     setLoading(true);
-    const { error } = await supabase.from('lucky_draws').insert([{ selected_numbers: selectedNumbers }]);
+    const { error } = await supabase.from('lucky_draws').insert([{ 
+      selected_numbers: selectedNumbers,
+      user_id: user.id 
+    }]);
     if (!error) {
       alert('행운이 등록되었습니다!');
       setSelectedNumbers([]);
@@ -87,9 +109,22 @@ export default function Home() {
     <div className="min-h-screen bg-[#0a0e17] text-white p-6 pb-24 font-sans">
       <div className="max-w-md mx-auto space-y-8">
         
-        <header className="text-center pt-4">
+        {/* 상단 사용자 바 */}
+        <div className="flex justify-end items-center gap-3 py-2">
+          {user ? (
+            <div className="flex items-center gap-3 bg-slate-900/50 px-3 py-1.5 rounded-full border border-slate-800">
+              <span className="text-[10px] font-bold text-slate-400">{user.email}</span>
+              <button onClick={handleLogout} className="text-[10px] font-black text-red-500 uppercase">Logout</button>
+            </div>
+          ) : (
+            <button onClick={handleGoogleLogin} className="bg-white text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase">
+              Login with Google
+            </button>
+          )}
+        </div>
+
+        <header className="text-center">
           <h1 className="text-4xl font-black italic text-yellow-500 tracking-tighter">LUCKY DRAW</h1>
-          {/* 타이머 디자인 추가 */}
           <div className="mt-4 inline-flex flex-col items-center">
             <span className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.3em] mb-1">Next Draw In</span>
             <div className="bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full shadow-inner">
@@ -98,7 +133,6 @@ export default function Home() {
           </div>
         </header>
 
-        {/* 당첨 번호 결과 */}
         <section className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-8 text-center shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4">
             <div className="flex items-center gap-1.5">
@@ -114,7 +148,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 번호 선택 섹션 (기존과 동일) */}
         <section className="space-y-6">
           <div className="flex justify-between items-end px-1">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select 5 Numbers</span>
@@ -130,13 +163,11 @@ export default function Home() {
           </button>
         </section>
 
-        {/* 내 기록 섹션 (지난 내역만 노란색 강조 로직 포함) */}
         <section className="space-y-8 pt-4">
           <h2 className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em] text-center">My Fortune History</h2>
           {Object.keys(groupedHistory).length > 0 ? Object.keys(groupedHistory).map(date => {
             const todayStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
             const isToday = date === todayStr;
-
             return (
               <div key={date} className="space-y-4">
                 <div className="flex items-center gap-4 text-[10px] font-bold text-slate-800">
