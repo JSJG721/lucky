@@ -8,10 +8,36 @@ export default function Home() {
   const [history, setHistory] = useState<any[]>([]);
   const [winningNumbers, setWinningNumbers] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(''); // 타이머 상태
 
   useEffect(() => {
     fetchData();
+    
+    // 타이머 시작 (1초마다 업데이트)
+    const timer = setInterval(calculateTimeLeft, 1000);
+    return () => clearInterval(timer);
   }, []);
+
+  // 21:00까지 남은 시간 계산 로직
+  const calculateTimeLeft = () => {
+    const now = new Date();
+    const target = new Date();
+    target.setHours(21, 0, 0, 0); // 오늘 밤 9시
+
+    // 만약 지금이 밤 9시 이후라면 다음 날 밤 9시로 설정
+    if (now > target) {
+      target.setDate(target.getDate() + 1);
+    }
+
+    const diff = target.getTime() - now.getTime();
+    const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+    const m = Math.floor((diff / (1000 * 60)) % 60);
+    const s = Math.floor((diff / 1000) % 60);
+
+    setTimeLeft(
+      `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+    );
+  };
 
   const fetchData = async () => {
     const { data: winData } = await supabase.from('winning_numbers').select('*').order('draw_date', { ascending: false }).limit(1).maybeSingle();
@@ -59,16 +85,28 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#0a0e17] text-white p-6 pb-24 font-sans">
-      <div className="max-w-md mx-auto space-y-10">
+      <div className="max-w-md mx-auto space-y-8">
         
         <header className="text-center pt-4">
           <h1 className="text-4xl font-black italic text-yellow-500 tracking-tighter">LUCKY DRAW</h1>
-          <p className="text-slate-500 text-[10px] tracking-[0.2em] uppercase mt-2">Daily Luck & Fortune</p>
+          {/* 타이머 디자인 추가 */}
+          <div className="mt-4 inline-flex flex-col items-center">
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.3em] mb-1">Next Draw In</span>
+            <div className="bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full shadow-inner">
+              <span className="text-xl font-mono font-black text-white tracking-widest">{timeLeft || '00:00:00'}</span>
+            </div>
+          </div>
         </header>
 
         {/* 당첨 번호 결과 */}
-        <section className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-8 text-center shadow-2xl">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] block mb-6">Today's Results</span>
+        <section className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-8 text-center shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4">
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping"></div>
+              <span className="text-red-500 text-[9px] font-bold tracking-tighter">LIVE RESULTS</span>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] block mb-6">Last Winning Numbers</span>
           <div className="flex justify-center gap-3">
             {winningNumbers.length > 0 ? winningNumbers.map((n, i) => (
               <div key={i} className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-600 text-black flex items-center justify-center font-black shadow-lg shadow-yellow-500/30">{n}</div>
@@ -76,39 +114,26 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 번호 선택 섹션 */}
+        {/* 번호 선택 섹션 (기존과 동일) */}
         <section className="space-y-6">
           <div className="flex justify-between items-end px-1">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select 5 Numbers</span>
             <button onClick={handleAutoSelect} className="text-[10px] font-black text-yellow-500 border border-yellow-500/30 px-3 py-1.5 rounded-full hover:bg-yellow-500 hover:text-black transition-all">AUTO SELECT</button>
           </div>
-
           <div className="grid grid-cols-7 gap-2">
             {Array.from({ length: 28 }, (_, i) => i + 1).map(n => (
-              <button
-                key={n}
-                onClick={() => toggleNumber(n)}
-                className={`aspect-square rounded-2xl text-sm font-bold transition-all duration-200 ${
-                  selectedNumbers.includes(n) ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/40 scale-90' : 'bg-slate-900/80 text-slate-500 border border-slate-800'
-                }`}
-              >{n}</button>
+              <button key={n} onClick={() => toggleNumber(n)} className={`aspect-square rounded-2xl text-sm font-bold transition-all duration-200 ${selectedNumbers.includes(n) ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/40 scale-90' : 'bg-slate-900/80 text-slate-500 border border-slate-800'}`}>{n}</button>
             ))}
           </div>
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading || selectedNumbers.length !== 5}
-            className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black tracking-widest disabled:bg-slate-800 disabled:text-slate-600 transition-all active:scale-95 shadow-xl shadow-white/5"
-          >
+          <button onClick={handleSubmit} disabled={loading || selectedNumbers.length !== 5} className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black tracking-widest disabled:bg-slate-800 disabled:text-slate-600 transition-all active:scale-95 shadow-xl shadow-white/5">
             {loading ? 'SENDING...' : `DRAW WITH ${selectedNumbers.length}/5`}
           </button>
         </section>
 
-        {/* 내 기록 (오늘 내역은 회색 고정) */}
+        {/* 내 기록 섹션 (지난 내역만 노란색 강조 로직 포함) */}
         <section className="space-y-8 pt-4">
           <h2 className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em] text-center">My Fortune History</h2>
           {Object.keys(groupedHistory).length > 0 ? Object.keys(groupedHistory).map(date => {
-            // 오늘 날짜인지 확인
             const todayStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
             const isToday = date === todayStr;
 
@@ -124,7 +149,6 @@ export default function Home() {
                     <div key={i} className="bg-[#111622] border border-slate-800/40 rounded-3xl p-5 flex justify-between items-center group">
                       <div className="flex gap-2.5">
                         {record.selected_numbers?.map((n: number, j: number) => {
-                          // 오늘이 아니면서 당첨 번호에 포함된 경우만 노란색
                           const isWin = !isToday && winningNumbers.includes(n);
                           return (
                             <span key={j} className={`text-sm font-black transition-colors ${isWin ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]' : 'text-slate-600'}`}>{n}</span>
