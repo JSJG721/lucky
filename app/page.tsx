@@ -14,11 +14,9 @@ export default function Home() {
   }, []);
 
   const fetchData = async () => {
-    // 1. 당첨 번호 가져오기
     const { data: winData } = await supabase.from('winning_numbers').select('*').order('draw_date', { ascending: false }).limit(1).maybeSingle();
     if (winData) setWinningNumbers(winData.numbers);
 
-    // 2. 응모 내역 가져오기
     const { data: drawData } = await supabase.from('lucky_draws').select('*').order('created_at', { ascending: false });
     if (drawData) setHistory(drawData);
   };
@@ -40,19 +38,11 @@ export default function Home() {
     setSelectedNumbers(randomNums.sort((a, b) => a - b));
   };
 
-  // [수정된 부분] 데이터베이스의 'selected_numbers' 컬럼명에 맞게 전송
   const handleSubmit = async () => {
     if (selectedNumbers.length !== 5) return alert('5개 번호를 선택해주세요!');
     setLoading(true);
-    
-    const { error } = await supabase
-      .from('lucky_draws')
-      .insert([{ selected_numbers: selectedNumbers }]); // 여기를 'selected_numbers'로 변경했습니다.
-    
-    if (error) {
-      console.error(error);
-      alert('응모 실패: ' + error.message);
-    } else {
+    const { error } = await supabase.from('lucky_draws').insert([{ selected_numbers: selectedNumbers }]);
+    if (!error) {
       alert('행운이 등록되었습니다!');
       setSelectedNumbers([]);
       fetchData();
@@ -76,6 +66,7 @@ export default function Home() {
           <p className="text-slate-500 text-[10px] tracking-[0.2em] uppercase mt-2">Daily Luck & Fortune</p>
         </header>
 
+        {/* 당첨 번호 결과 */}
         <section className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-8 text-center shadow-2xl">
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] block mb-6">Today's Results</span>
           <div className="flex justify-center gap-3">
@@ -85,6 +76,7 @@ export default function Home() {
           </div>
         </section>
 
+        {/* 번호 선택 섹션 */}
         <section className="space-y-6">
           <div className="flex justify-between items-end px-1">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select 5 Numbers</span>
@@ -112,30 +104,40 @@ export default function Home() {
           </button>
         </section>
 
+        {/* 내 기록 (오늘 내역은 회색 고정) */}
         <section className="space-y-8 pt-4">
           <h2 className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em] text-center">My Fortune History</h2>
-          {Object.keys(groupedHistory).length > 0 ? Object.keys(groupedHistory).map(date => (
-            <div key={date} className="space-y-4">
-              <div className="flex items-center gap-4 text-[10px] font-bold text-slate-800">
-                <div className="h-px flex-1 bg-slate-900"></div>
-                <span className="whitespace-nowrap">{date}</span>
-                <div className="h-px flex-1 bg-slate-900"></div>
-              </div>
-              <div className="space-y-3">
-                {groupedHistory[date].map((record: any, i: number) => (
-                  <div key={i} className="bg-[#111622] border border-slate-800/40 rounded-3xl p-5 flex justify-between items-center">
-                    <div className="flex gap-2.5">
-                      {/* 여기도 selected_numbers로 변경 */}
-                      {record.selected_numbers?.map((n: number, j: number) => (
-                        <span key={j} className={`text-sm font-black ${winningNumbers.includes(n) ? 'text-yellow-500' : 'text-slate-600'}`}>{n}</span>
-                      ))}
+          {Object.keys(groupedHistory).length > 0 ? Object.keys(groupedHistory).map(date => {
+            // 오늘 날짜인지 확인
+            const todayStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+            const isToday = date === todayStr;
+
+            return (
+              <div key={date} className="space-y-4">
+                <div className="flex items-center gap-4 text-[10px] font-bold text-slate-800">
+                  <div className="h-px flex-1 bg-slate-900"></div>
+                  <span className="whitespace-nowrap">{date} {isToday && "(추첨 전)"}</span>
+                  <div className="h-px flex-1 bg-slate-900"></div>
+                </div>
+                <div className="space-y-3">
+                  {groupedHistory[date].map((record: any, i: number) => (
+                    <div key={i} className="bg-[#111622] border border-slate-800/40 rounded-3xl p-5 flex justify-between items-center group">
+                      <div className="flex gap-2.5">
+                        {record.selected_numbers?.map((n: number, j: number) => {
+                          // 오늘이 아니면서 당첨 번호에 포함된 경우만 노란색
+                          const isWin = !isToday && winningNumbers.includes(n);
+                          return (
+                            <span key={j} className={`text-sm font-black transition-colors ${isWin ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]' : 'text-slate-600'}`}>{n}</span>
+                          );
+                        })}
+                      </div>
+                      <span className="text-[9px] text-slate-700 font-mono font-bold">{new Date(record.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
-                    <span className="text-[9px] text-slate-700 font-mono font-bold">{new Date(record.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )) : (
+            );
+          }) : (
             <div className="text-center py-20 bg-slate-900/20 rounded-[2.5rem] border border-dashed border-slate-800/50">
               <p className="text-slate-700 text-xs font-medium">No draw history yet.</p>
             </div>
