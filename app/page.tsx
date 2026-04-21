@@ -13,17 +13,25 @@ export default function Home() {
   const [timeLeft, setTimeLeft] = useState('');
 
   useEffect(() => {
-    // 1. 현재 로그인 세션 확인
+    // 1. 세션 확인 및 초기 데이터 로딩
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) fetchHistory(currentUser.id);
     });
 
-    // 2. 로그인 상태 변화 감지
+    // 2. 상태 변화 감지
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) {
+        fetchHistory(currentUser.id);
+      } else {
+        setHistory([]); // 로그아웃 시 내역 초기화
+      }
     });
 
-    fetchData();
+    fetchWinningNumbers();
     const timer = setInterval(calculateTimeLeft, 1000);
     
     return () => {
@@ -32,7 +40,6 @@ export default function Home() {
     };
   }, []);
 
-  // 타이머 계산 함수
   const calculateTimeLeft = () => {
     const now = new Date();
     const target = new Date();
@@ -45,27 +52,34 @@ export default function Home() {
     setTimeLeft(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
   };
 
-  const fetchData = async () => {
-    const { data: winData } = await supabase.from('winning_numbers').select('*').order('draw_date', { ascending: false }).limit(1).maybeSingle();
-    if (winData) setWinningNumbers(winData.numbers);
+  const fetchWinningNumbers = async () => {
+    const { data } = await supabase.from('winning_numbers').select('*').order('draw_date', { ascending: false }).limit(1).maybeSingle();
+    if (data) setWinningNumbers(data.numbers);
+  };
 
-    const { data: drawData } = await supabase.from('lucky_draws').select('*').order('created_at', { ascending: false });
-    if (drawData) setHistory(drawData);
+  const fetchHistory = async (userId: string) => {
+    // 로그인한 사용자의 데이터만 가져옴
+    const { data } = await supabase
+      .from('lucky_draws')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (data) setHistory(data);
   };
 
   const handleGoogleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { 
-        // Vercel에서 실행 중일 때는 Vercel 주소로, 내 컴퓨터일 때는 localhost로 자동 지정됩니다.
-        redirectTo: window.location.origin 
-      }
+      options: { redirectTo: window.location.origin }
     });
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    window.location.reload();
+    setUser(null);
+    setHistory([]);
+    setSelectedNumbers([]);
+    alert('로그아웃 되었습니다.');
   };
 
   const toggleNumber = (n: number) => {
@@ -88,15 +102,20 @@ export default function Home() {
   const handleSubmit = async () => {
     if (!user) return alert('로그인이 필요합니다!');
     if (selectedNumbers.length !== 5) return alert('5개 번호를 선택해주세요!');
+    
     setLoading(true);
     const { error } = await supabase.from('lucky_draws').insert([{ 
       selected_numbers: selectedNumbers,
       user_id: user.id 
     }]);
-    if (!error) {
+
+    if (error) {
+      console.error(error);
+      alert('저장 중 오류가 발생했습니다. (테이블 권한 확인 필요)');
+    } else {
       alert('행운이 등록되었습니다!');
       setSelectedNumbers([]);
-      fetchData();
+      fetchHistory(user.id);
     }
     setLoading(false);
   };
@@ -112,7 +131,7 @@ export default function Home() {
     <div className="min-h-screen bg-[#0a0e17] text-white p-6 pb-24 font-sans">
       <div className="max-w-md mx-auto space-y-8">
         
-        {/* 상단 사용자 바 */}
+        {/* 상단 로그인/로그아웃 바 */}
         <div className="flex justify-end items-center gap-3 py-2">
           {user ? (
             <div className="flex items-center gap-3 bg-slate-900/50 px-3 py-1.5 rounded-full border border-slate-800">
@@ -136,6 +155,7 @@ export default function Home() {
           </div>
         </header>
 
+        {/* 당첨 번호 결과 (기존 유지) */}
         <section className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-8 text-center shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4">
             <div className="flex items-center gap-1.5">
@@ -151,6 +171,7 @@ export default function Home() {
           </div>
         </section>
 
+        {/* 번호 선택 섹션 */}
         <section className="space-y-6">
           <div className="flex justify-between items-end px-1">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select 5 Numbers</span>
@@ -166,41 +187,44 @@ export default function Home() {
           </button>
         </section>
 
-        <section className="space-y-8 pt-4">
-          <h2 className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em] text-center">My Fortune History</h2>
-          {Object.keys(groupedHistory).length > 0 ? Object.keys(groupedHistory).map(date => {
-            const todayStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-            const isToday = date === todayStr;
-            return (
-              <div key={date} className="space-y-4">
-                <div className="flex items-center gap-4 text-[10px] font-bold text-slate-800">
-                  <div className="h-px flex-1 bg-slate-900"></div>
-                  <span className="whitespace-nowrap">{date} {isToday && "(추첨 전)"}</span>
-                  <div className="h-px flex-1 bg-slate-900"></div>
-                </div>
-                <div className="space-y-3">
-                  {groupedHistory[date].map((record: any, i: number) => (
-                    <div key={i} className="bg-[#111622] border border-slate-800/40 rounded-3xl p-5 flex justify-between items-center group">
-                      <div className="flex gap-2.5">
-                        {record.selected_numbers?.map((n: number, j: number) => {
-                          const isWin = !isToday && winningNumbers.includes(n);
-                          return (
-                            <span key={j} className={`text-sm font-black transition-colors ${isWin ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]' : 'text-slate-600'}`}>{n}</span>
-                          );
-                        })}
+        {/* 내 기록 섹션 (로그인 시에만 표시) */}
+        {user && (
+          <section className="space-y-8 pt-4">
+            <h2 className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em] text-center">My Fortune History</h2>
+            {Object.keys(groupedHistory).length > 0 ? Object.keys(groupedHistory).map(date => {
+              const todayStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+              const isToday = date === todayStr;
+              return (
+                <div key={date} className="space-y-4">
+                  <div className="flex items-center gap-4 text-[10px] font-bold text-slate-800">
+                    <div className="h-px flex-1 bg-slate-900"></div>
+                    <span className="whitespace-nowrap">{date} {isToday && "(추첨 전)"}</span>
+                    <div className="h-px flex-1 bg-slate-900"></div>
+                  </div>
+                  <div className="space-y-3">
+                    {groupedHistory[date].map((record: any, i: number) => (
+                      <div key={i} className="bg-[#111622] border border-slate-800/40 rounded-3xl p-5 flex justify-between items-center">
+                        <div className="flex gap-2.5">
+                          {record.selected_numbers?.map((n: number, j: number) => {
+                            const isWin = !isToday && winningNumbers.includes(n);
+                            return (
+                              <span key={j} className={`text-sm font-black transition-colors ${isWin ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]' : 'text-slate-600'}`}>{n}</span>
+                            );
+                          })}
+                        </div>
+                        <span className="text-[9px] text-slate-700 font-mono font-bold">{new Date(record.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
-                      <span className="text-[9px] text-slate-700 font-mono font-bold">{new Date(record.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
+              );
+            }) : (
+              <div className="text-center py-20 bg-slate-900/20 rounded-[2.5rem] border border-dashed border-slate-800/50">
+                <p className="text-slate-700 text-xs font-medium">No draw history yet.</p>
               </div>
-            );
-          }) : (
-            <div className="text-center py-20 bg-slate-900/20 rounded-[2.5rem] border border-dashed border-slate-800/50">
-              <p className="text-slate-700 text-xs font-medium">No draw history yet.</p>
-            </div>
-          )}
-        </section>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );
