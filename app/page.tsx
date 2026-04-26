@@ -41,17 +41,28 @@ export default function Home() {
   // --- 헬퍼 함수들 (내부 선언으로 빨간줄 방지) ---
   
   const fetchUserData = async (userId: string) => {
-    const { data: balance } = await supabase
+    // maybeSingle을 사용하여 데이터가 없어도 에러 대신 null을 받음
+    const { data: balance, error } = await supabase
       .from('user_balances')
       .select('*')
       .eq('id', userId)
       .maybeSingle();
 
+    if (error) {
+      console.error("데이터 로드 실패:", error);
+      return;
+    }
+
     if (balance) {
       setTicketCount(balance.ticket_count);
       setAdsToday(balance.ads_watched_today);
+    } else {
+      // 데이터가 없는 신규 유저라면 UI에 0으로 표시
+      setTicketCount(0);
+      setAdsToday(0);
     }
 
+    // 내 응모 내역 로드
     const { data: userDraws } = await supabase
       .from('lucky_draws')
       .select('*')
