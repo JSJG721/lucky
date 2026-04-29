@@ -35,13 +35,15 @@ export default function Home() {
     };
     init();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session) {
         setUser(session.user);
         await fetchUserData(session.user.id);
-      } else {
+      } else if (event === 'SIGNED_OUT') {
+        // 로그아웃 이벤트가 발생하면 즉시 UI 리셋
         setUser(null);
         setTicketCount(0);
+        setAdsToday(0);
         setHistory([]);
       }
     });
@@ -172,11 +174,13 @@ export default function Home() {
         
         <header className="flex justify-between items-center py-2">
           <h1 className="text-xl font-black text-yellow-500 italic uppercase">Lucky 5/28</h1>
-          {!user ? (
-            <button onClick={handleLogin} className="px-4 py-2 bg-white text-black text-xs font-bold rounded-full">LOGIN</button>
-          ) : (
-            <button onClick={() => supabase.auth.signOut()} className="text-xs text-slate-500 font-bold underline">LOGOUT</button>
-          )}
+        {!user ? (
+  <button onClick={handleLogin} className="...">LOGIN</button>
+) : (
+  <button onClick={handleLogout} className="text-xs text-slate-500 font-bold underline">
+    LOGOUT
+  </button>
+)}
         </header>
 
         {user && (
