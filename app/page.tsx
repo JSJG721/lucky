@@ -4,27 +4,16 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/src/lib/supabase';
 
 export default function Home() {
+  // --- [상태 관리] ---
   const [user, setUser] = useState<any>(null);
   const [ticketCount, setTicketCount] = useState(0);
   const [adsToday, setAdsToday] = useState(0);
   const [selectedNumbers, setSelectedNumbers] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
-  
   const [history, setHistory] = useState<any[]>([]);
   const [winningNumbers, setWinningNumbers] = useState<number[]>([]);
-  const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error("로그아웃 중 에러:", error.message);
-    } else {
-      // 로그아웃 성공 시 모든 로컬 상태 초기화
-      setUser(null);
-      setTicketCount(0);
-      setAdsToday(0);
-      setHistory([]);
-      alert("로그아웃 되었습니다.");
-    }
-  };
+
+  // --- [초기 로드 및 인증 감시] ---
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -36,11 +25,10 @@ export default function Home() {
     init();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
+      if (session?.user) {
         setUser(session.user);
         await fetchUserData(session.user.id);
-      } else if (event === 'SIGNED_OUT') {
-        // 로그아웃 이벤트가 발생하면 즉시 UI 리셋
+      } else {
         setUser(null);
         setTicketCount(0);
         setAdsToday(0);
@@ -52,31 +40,19 @@ export default function Home() {
     return () => authListener.subscription.unsubscribe();
   }, []);
 
-  // --- 헬퍼 함수들 (내부 선언으로 빨간줄 방지) ---
-  
+  // --- [데이터 통신 함수] ---
   const fetchUserData = async (userId: string) => {
-    // maybeSingle을 사용하여 데이터가 없어도 에러 대신 null을 받음
-    const { data: balance, error } = await supabase
+    const { data: balance } = await supabase
       .from('user_balances')
       .select('*')
       .eq('id', userId)
       .maybeSingle();
 
-    if (error) {
-      console.error("데이터 로드 실패:", error);
-      return;
-    }
-
     if (balance) {
       setTicketCount(balance.ticket_count);
       setAdsToday(balance.ads_watched_today);
-    } else {
-      // 데이터가 없는 신규 유저라면 UI에 0으로 표시
-      setTicketCount(0);
-      setAdsToday(0);
     }
 
-    // 내 응모 내역 로드
     const { data: userDraws } = await supabase
       .from('lucky_draws')
       .select('*')
@@ -95,48 +71,41 @@ export default function Home() {
     if (wins && wins.length > 0) setWinningNumbers(wins[0].numbers);
   };
 
-  const handleLogin = () => supabase.auth.signInWithOAuth({ provider: 'google' });
-
-  const handleAutoSelect = () => {
-    const randomNums: number[] = [];
-    while (randomNums.length < 5) {
-      const n = Math.floor(Math.random() * 28) + 1;
-      if (!randomNums.includes(n)) randomNums.push(n);
-    }
-    setSelectedNumbers(randomNums.sort((a, b) => a - b));
+  // --- [액션 함수: 로그인/로그아웃/광고/응모] ---
+  const handleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin }
+    });
   };
 
-  const toggleNumber = (n: number) => {
-    if (selectedNumbers.includes(n)) {
-      setSelectedNumbers(selectedNumbers.filter(num => num !== n));
-    } else if (selectedNumbers.length < 5) {
-      setSelectedNumbers([...selectedNumbers, n].sort((a, b) => a - b));
-    }
+  const handleLogout = async () => {
+    setLoading(true);
+    await supabase.auth.signOut();
+    alert("로그아웃 되었습니다.");
+    setLoading(false);
   };
 
   const handleWatchAd = async () => {
     if (!user) return alert('로그인이 필요합니다.');
     setLoading(true);
-    
     const { data, error }: any = await supabase.rpc('reward_ad_tickets', { 
       target_user_id: user.id 
     });
 
     if (data?.success) {
       alert(data.message);
-      setTimeout(async () => {
-        await fetchUserData(user.id);
-      }, 500);
+      setTimeout(() => fetchUserData(user.id), 500);
     } else {
-      alert(data?.message || '광고 보상 지급 실패');
+      alert(data?.message || '보상 지급 실패');
     }
     setLoading(false);
   };
 
   const handleSubmit = async () => {
     if (!user || ticketCount <= 0 || selectedNumbers.length !== 5) return;
-    
     setLoading(true);
+    
     const { error: drawError } = await supabase.from('lucky_draws').insert({ 
       user_id: user.id, 
       selected_numbers: selectedNumbers 
@@ -154,6 +123,24 @@ export default function Home() {
     setLoading(false);
   };
 
+  // --- [로직 함수: 번호 선택/자동 선택/당첨 확인] ---
+  const toggleNumber = (n: number) => {
+    if (selectedNumbers.includes(n)) {
+      setSelectedNumbers(selectedNumbers.filter(num => num !== n));
+    } else if (selectedNumbers.length < 5) {
+      setSelectedNumbers([...selectedNumbers, n].sort((a, b) => a - b));
+    }
+  };
+
+  const handleAutoSelect = () => {
+    const randomNums: number[] = [];
+    while (randomNums.length < 5) {
+      const n = Math.floor(Math.random() * 28) + 1;
+      if (!randomNums.includes(n)) randomNums.push(n);
+    }
+    setSelectedNumbers(randomNums.sort((a, b) => a - b));
+  };
+
   const checkIsWinning = (entryCreatedAt: string, num: number) => {
     if (!winningNumbers.length) return false;
     const entryDate = new Date(entryCreatedAt);
@@ -162,27 +149,26 @@ export default function Home() {
     today9PM.setHours(21, 0, 0, 0);
     const yesterday9PM = new Date(today9PM);
     yesterday9PM.setDate(yesterday9PM.getDate() - 1);
-
     const isTargetSession = entryDate > yesterday9PM && entryDate <= today9PM;
     return isTargetSession && winningNumbers.includes(num);
   };
 
-  // --- 화면 렌더링 ---
+  // --- [UI 렌더링] ---
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 font-sans pb-10">
       <div className="max-w-md mx-auto space-y-6">
         
+        {/* 헤더 */}
         <header className="flex justify-between items-center py-2">
           <h1 className="text-xl font-black text-yellow-500 italic uppercase">Lucky 5/28</h1>
-        {!user ? (
-  <button onClick={handleLogin} className="...">LOGIN</button>
-) : (
-  <button onClick={handleLogout} className="text-xs text-slate-500 font-bold underline">
-    LOGOUT
-  </button>
-)}
+          {!user ? (
+            <button onClick={handleLogin} className="px-4 py-2 bg-white text-black text-xs font-bold rounded-full">LOGIN</button>
+          ) : (
+            <button onClick={handleLogout} className="text-xs text-slate-500 font-bold underline">LOGOUT</button>
+          )}
         </header>
 
+        {/* 내 정보 섹션 */}
         {user && (
           <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 flex justify-between items-center">
             <div>
@@ -196,6 +182,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* 광고 버튼 */}
         <button 
           onClick={handleWatchAd}
           disabled={loading || !user || adsToday >= 20}
@@ -204,6 +191,7 @@ export default function Home() {
           {adsToday >= 20 ? 'DAILY LIMIT REACHED' : 'WATCH AD (+5 TICKETS)'}
         </button>
 
+        {/* 번호 선택판 */}
         <section className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xs font-black uppercase tracking-widest text-white/50">Pick 5 Numbers</h3>
@@ -229,6 +217,7 @@ export default function Home() {
           </button>
         </section>
 
+        {/* 응모 내역 */}
         <section className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-2xl">
           <h3 className="text-xs font-black text-white uppercase tracking-widest mb-6">History</h3>
           <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
