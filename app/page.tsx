@@ -80,10 +80,35 @@ export default function Home() {
   };
 
   const handleLogout = async () => {
-    setLoading(true);
-    await supabase.auth.signOut();
-    alert("로그아웃 되었습니다.");
-    setLoading(false);
+    try {
+      setLoading(true);
+      
+      // 1. Supabase 서버 로그아웃 실행
+      await supabase.auth.signOut();
+      
+      // 2. 로컬 상태(UI) 즉시 초기화 (중요)
+      setUser(null);
+      setTicketCount(0);
+      setAdsToday(0);
+      setHistory([]);
+      setSelectedNumbers([]);
+
+      // 3. 브라우저 저장소 강제 클리어 (세션 꼬임 방지)
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+
+      alert("로그아웃 되었습니다.");
+      
+      // 4. 페이지를 새로고침하여 완전한 초기 상태로 복구
+      window.location.reload();
+      
+    } catch (error) {
+      console.error("로그아웃 실패:", error);
+      // 에러가 나더라도 UI는 로그인 전으로 되돌림
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleWatchAd = async () => {
@@ -164,8 +189,14 @@ export default function Home() {
           {!user ? (
             <button onClick={handleLogin} className="px-4 py-2 bg-white text-black text-xs font-bold rounded-full">LOGIN</button>
           ) : (
-            <button onClick={handleLogout} className="text-xs text-slate-500 font-bold underline">LOGOUT</button>
-          )}
+{/* 기존 로그아웃 버튼 부분을 아래로 교체 */}
+<button 
+  onClick={handleLogout} 
+  disabled={loading}
+  className="text-xs text-slate-500 font-bold underline cursor-pointer px-3 py-2 hover:text-white transition-colors z-50 relative"
+>
+  {loading ? 'WAIT...' : 'LOGOUT'}
+</button>
         </header>
 
         {/* 내 정보 섹션 */}
