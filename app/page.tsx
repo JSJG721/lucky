@@ -12,7 +12,19 @@ export default function Home() {
   
   const [history, setHistory] = useState<any[]>([]);
   const [winningNumbers, setWinningNumbers] = useState<number[]>([]);
-
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("로그아웃 중 에러:", error.message);
+    } else {
+      // 로그아웃 성공 시 모든 로컬 상태 초기화
+      setUser(null);
+      setTicketCount(0);
+      setAdsToday(0);
+      setHistory([]);
+      alert("로그아웃 되었습니다.");
+    }
+  };
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
