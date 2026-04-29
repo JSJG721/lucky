@@ -189,14 +189,14 @@ export default function Home() {
           {!user ? (
             <button onClick={handleLogin} className="px-4 py-2 bg-white text-black text-xs font-bold rounded-full">LOGIN</button>
           ) : (
-{/* 기존 로그아웃 버튼 부분을 아래로 교체 */}
-<button 
-  onClick={handleLogout} 
-  disabled={loading}
-  className="text-xs text-slate-500 font-bold underline cursor-pointer px-3 py-2 hover:text-white transition-colors z-50 relative"
->
-  {loading ? 'WAIT...' : 'LOGOUT'}
-</button>
+            <button 
+              onClick={handleLogout} 
+              disabled={loading}
+              className="text-xs text-slate-500 font-bold underline cursor-pointer px-3 py-2 hover:text-white transition-colors z-50 relative"
+            >
+              {loading ? 'WAIT...' : 'LOGOUT'}
+            </button>
+          )}
         </header>
 
         {/* 내 정보 섹션 */}
