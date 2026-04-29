@@ -14,11 +14,18 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: 'Lucky 5/28',
-  description: 'Easy Lottery App',
-  manifest: '/manifest.json', // 위에서 만든 파일 연결
-  viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0', // 확대 방지 (앱 느낌 강조)
-  themeColor: '#eab308',
+  manifest: '/manifest.json',
 };
+
+// metadata 밖으로 따로 빼주세요
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
+export const themeColor = '#eab308';
 
 export default function RootLayout({
   children,
