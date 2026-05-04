@@ -166,18 +166,26 @@ export default function Home() {
     setSelectedNumbers(randomNums.sort((a, b) => a - b));
   };
 
-  const checkIsWinning = (entryCreatedAt: string, num: number) => {
-    if (!winningNumbers.length) return false;
-    const entryDate = new Date(entryCreatedAt);
+  const checkIsWinning = (createdAt: string, num: number) => {
+    if (!winningNumbers || winningNumbers.length === 0) return false;
+  
+    const entryDate = new Date(createdAt);
     const now = new Date();
-    const today9PM = new Date(now);
-    today9PM.setHours(21, 0, 0, 0);
-    const yesterday9PM = new Date(today9PM);
-    yesterday9PM.setDate(yesterday9PM.getDate() - 1);
-    const isTargetSession = entryDate > yesterday9PM && entryDate <= today9PM;
-    return isTargetSession && winningNumbers.includes(num);
+    
+    // 1. 응모한 날의 밤 9시 기준점 계산
+    const cutoffTime = new Date(entryDate);
+    cutoffTime.setHours(21, 0, 0, 0);
+  
+    // 2. 만약 밤 9시 이후에 응모했다면, 이 번호는 "내일" 추첨용입니다.
+    // 따라서 현재 서버에서 받아온 "오늘의 당첨번호"와 비교하면 안 됩니다.
+    if (entryDate >= cutoffTime) {
+      return false; // 아직 추첨 전이므로 무조건 false
+    }
+  
+    // 3. 밤 9시 이전에 응모했다면, 현재 당첨번호와 비교합니다.
+    // (단, 당첨번호가 발표된 후에만 비교하고 싶다면 추가 조건이 필요할 수 있습니다)
+    return winningNumbers.includes(num);
   };
-
   // --- [UI 렌더링] ---
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 font-sans pb-10">
