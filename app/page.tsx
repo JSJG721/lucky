@@ -38,6 +38,7 @@ export default function Home() {
         setTicketCount(0);
         setHistory([]);
         setAdsToday(0);
+        setLoading(false);
       }
     });
   
@@ -89,22 +90,21 @@ export default function Home() {
   const handleLogout = async () => {
     setLoading(true);
     try {
-      // scope: 'local'을 추가하면 네트워크 연결이 불안정해도 로컬의 로그인 정보를 먼저 지웁니다.
-      const { error } = await supabase.auth.signOut({ scope: 'local' });
-      if (error) throw error;
+      // 로그아웃 시 로컬 세션을 즉시 파기
+      await supabase.auth.signOut({ scope: 'local' });
       
-      // 로그아웃 성공 시 상태 초기화
+      // UI 상태 즉시 초기화
       setUser(null);
       setTicketCount(0);
-      setHistory([]);
       setAdsToday(0);
+      setHistory([]);
       
-      alert('Logged out successfully');
+      // 만약 페이지 전체를 깔끔하게 비우고 싶다면 아래 주석을 해제하세요
+      // window.location.reload(); 
     } catch (error) {
-      console.error('Logout error:', error);
-      alert('Failed to logout. Please try again.');
+      console.error("Logout Error:", error);
     } finally {
-      // 에러가 나든 성공하든 로딩 상태를 해제해서 'WAIT...'를 없앱니다.
+      // 성공하든 실패하든 로딩 상태를 해제 (WAIT 제거)
       setLoading(false);
     }
   };
