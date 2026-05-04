@@ -16,12 +16,16 @@ export default function Home() {
   // --- [초기 로드 및 인증 감시] ---
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      // 세션이 없거나 에러가 있으면 유저 정보를 null로 강제 초기화
+      if (error || !session) {
+        setUser(null);
+      } else {
         setUser(session.user);
         await fetchUserData(session.user.id);
       }
-      // 당첨 번호는 로그인 여부와 상관없이 가져옵니다.
+      
       await fetchGlobalData();
     };
     init();
@@ -91,10 +95,16 @@ export default function Home() {
   const handleLogout = async () => {
     setLoading(true);
     try {
+      // scope: 'local'은 서버 통신 없이 로컬 데이터만 삭제하므로 더 안전합니다.
       await supabase.auth.signOut({ scope: 'local' });
     } catch (error) {
       console.error("Logout Error:", error);
     } finally {
+      // 에러 여부와 상관없이 UI는 로그인 전 상태로 강제 전환
+      setUser(null);
+      setTicketCount(0);
+      setAdsToday(0);
+      setHistory([]);
       setLoading(false);
     }
   };
