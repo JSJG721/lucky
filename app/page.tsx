@@ -80,33 +80,24 @@ export default function Home() {
   };
 
   const handleLogout = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
+      // scope: 'local'을 추가하면 네트워크 연결이 불안정해도 로컬의 로그인 정보를 먼저 지웁니다.
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) throw error;
       
-      // 1. Supabase 서버 로그아웃 실행
-      await supabase.auth.signOut();
-      
-      // 2. 로컬 상태(UI) 즉시 초기화 (중요)
+      // 로그아웃 성공 시 상태 초기화
       setUser(null);
       setTicketCount(0);
-      setAdsToday(0);
       setHistory([]);
-      setSelectedNumbers([]);
-
-      // 3. 브라우저 저장소 강제 클리어 (세션 꼬임 방지)
-      window.localStorage.clear();
-      window.sessionStorage.clear();
-
-      alert("로그아웃 되었습니다.");
+      setAdsToday(0);
       
-      // 4. 페이지를 새로고침하여 완전한 초기 상태로 복구
-      window.location.reload();
-      
+      alert('Logged out successfully');
     } catch (error) {
-      console.error("로그아웃 실패:", error);
-      // 에러가 나더라도 UI는 로그인 전으로 되돌림
-      setUser(null);
+      console.error('Logout error:', error);
+      alert('Failed to logout. Please try again.');
     } finally {
+      // 에러가 나든 성공하든 로딩 상태를 해제해서 'WAIT...'를 없앱니다.
       setLoading(false);
     }
   };
