@@ -15,25 +15,22 @@ export default function Home() {
 
   // --- [초기 로드 및 인증 감시] ---
   useEffect(() => {
-    // 1. 초기 세션 확인 (앱 로드 시 1회 실행)
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         setUser(session.user);
         await fetchUserData(session.user.id);
-      } else {
-        setUser(null); // 세션 없으면 유저 초기화
       }
+      // 당첨 번호는 로그인 여부와 상관없이 가져옵니다.
+      await fetchGlobalData();
     };
     init();
   
-    // 2. 인증 상태 변화 감지 (로그인, 로그아웃, 토큰 갱신 등)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         setUser(session.user);
         await fetchUserData(session.user.id);
       } else if (event === 'SIGNED_OUT') {
-        // 로그아웃 시 모든 상태 초기화
         setUser(null);
         setTicketCount(0);
         setHistory([]);
@@ -42,7 +39,6 @@ export default function Home() {
       }
     });
   
-    // 3. 컴포넌트 언마운트 시 구독 해제 (메모리 누수 방지)
     return () => {
       subscription.unsubscribe();
     };
@@ -76,14 +72,15 @@ export default function Home() {
       .select('*')
       .order('draw_date', { ascending: false })
       .limit(1);
-    if (wins && wins.length > 0) setWinningNumbers(wins[0].numbers);
+    
+    // DB에서 가져온 숫자가 문자열일 경우를 대비해 Number로 변환 처리
+    if (wins && wins.length > 0) {
+      const nums = wins[0].numbers.map((n: any) => Number(n));
+      setWinningNumbers(nums);
+    }
   };
-  useEffect(() => {
-    // 테스트용: 데이터가 안 오면 강제로 넣어봄
-    // setWinningNumbers([1, 2, 3, 4, 5]); 
-  }, []);
 
-  // --- [액션 함수: 로그인/로그아웃/광고/응모] ---
+  // --- [액션 함수] ---
   const handleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -94,21 +91,10 @@ export default function Home() {
   const handleLogout = async () => {
     setLoading(true);
     try {
-      // 로그아웃 시 로컬 세션을 즉시 파기
       await supabase.auth.signOut({ scope: 'local' });
-      
-      // UI 상태 즉시 초기화
-      setUser(null);
-      setTicketCount(0);
-      setAdsToday(0);
-      setHistory([]);
-      
-      // 만약 페이지 전체를 깔끔하게 비우고 싶다면 아래 주석을 해제하세요
-      // window.location.reload(); 
     } catch (error) {
       console.error("Logout Error:", error);
     } finally {
-      // 성공하든 실패하든 로딩 상태를 해제 (WAIT 제거)
       setLoading(false);
     }
   };
@@ -150,7 +136,6 @@ export default function Home() {
     setLoading(false);
   };
 
-  // --- [로직 함수: 번호 선택/자동 선택/당첨 확인] ---
   const toggleNumber = (n: number) => {
     if (selectedNumbers.includes(n)) {
       setSelectedNumbers(selectedNumbers.filter(num => num !== n));
@@ -170,46 +155,56 @@ export default function Home() {
 
   const checkIsWinning = (createdAt: string, num: number) => {
     if (!winningNumbers || winningNumbers.length === 0) return false;
-  
     const entryDate = new Date(createdAt);
-    const now = new Date();
-    
-    // 1. 응모한 날의 밤 9시 기준점 계산
     const cutoffTime = new Date(entryDate);
     cutoffTime.setHours(21, 0, 0, 0);
-  
-    // 2. 만약 밤 9시 이후에 응모했다면, 이 번호는 "내일" 추첨용입니다.
-    // 따라서 현재 서버에서 받아온 "오늘의 당첨번호"와 비교하면 안 됩니다.
-    if (entryDate >= cutoffTime) {
-      return false; // 아직 추첨 전이므로 무조건 false
-    }
-  
-    // 3. 밤 9시 이전에 응모했다면, 현재 당첨번호와 비교합니다.
-    // (단, 당첨번호가 발표된 후에만 비교하고 싶다면 추가 조건이 필요할 수 있습니다)
+    if (entryDate >= cutoffTime) return false;
     return winningNumbers.includes(num);
   };
-  // --- [UI 렌더링] ---
+
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 font-sans pb-10">
       <div className="max-w-md mx-auto space-y-6">
         
-        {/* 헤더 */}
+        {/* 1. 헤더 */}
         <header className="flex justify-between items-center py-2">
-          <h1 className="text-xl font-black text-yellow-500 italic uppercase">Lucky 5/28</h1>
+          <h1 className="text-xl font-black text-yellow-500 italic uppercase tracking-tighter">Lucky 5/28</h1>
           {!user ? (
             <button onClick={handleLogin} className="px-4 py-2 bg-white text-black text-xs font-bold rounded-full">LOGIN</button>
           ) : (
             <button 
               onClick={handleLogout} 
               disabled={loading}
-              className="text-xs text-slate-500 font-bold underline cursor-pointer px-3 py-2 hover:text-white transition-colors z-50 relative"
+              className="text-xs text-slate-500 font-bold underline px-3 py-2 hover:text-white transition-colors"
             >
               {loading ? 'WAIT...' : 'LOGOUT'}
             </button>
           )}
         </header>
 
-        {/* 내 정보 섹션 */}
+        {/* 2. 당첨 번호 표시 (최상단 배치) */}
+        <section className="bg-slate-900 p-6 rounded-[2rem] border border-yellow-500/20 shadow-[0_0_20px_rgba(234,179,8,0.05)]">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
+              <h3 className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Last Winning Numbers</h3>
+            </div>
+            <span className="text-[9px] text-slate-500 font-mono italic">Daily 21:00 Draw</span>
+          </div>
+          <div className="flex justify-center gap-3">
+            {winningNumbers.length > 0 ? (
+              winningNumbers.map((num, idx) => (
+                <div key={idx} className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 text-black flex items-center justify-center font-black text-sm shadow-lg">
+                  {num}
+                </div>
+              ))
+            ) : (
+              <div className="py-2 text-slate-600 text-[10px] font-bold uppercase italic">Loading results...</div>
+            )}
+          </div>
+        </section>
+
+        {/* 3. 내 정보 섹션 */}
         {user && (
           <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 flex justify-between items-center">
             <div>
@@ -223,16 +218,16 @@ export default function Home() {
           </div>
         )}
 
-        {/* 광고 버튼 */}
+        {/* 4. 광고 버튼 */}
         <button 
           onClick={handleWatchAd}
           disabled={loading || !user || adsToday >= 20}
-          className="w-full py-4 bg-yellow-500 text-black rounded-2xl font-black text-sm disabled:bg-slate-800 disabled:text-slate-600 transition-all shadow-lg"
+          className="w-full py-4 bg-yellow-500 text-black rounded-2xl font-black text-sm disabled:bg-slate-800 disabled:text-slate-600 transition-all shadow-lg shadow-yellow-900/10"
         >
           {adsToday >= 20 ? 'DAILY LIMIT REACHED' : 'WATCH AD (+5 TICKETS)'}
         </button>
 
-        {/* 번호 선택판 */}
+        {/* 5. 번호 선택판 */}
         <section className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xs font-black uppercase tracking-widest text-white/50">Pick 5 Numbers</h3>
@@ -243,7 +238,7 @@ export default function Home() {
               <button
                 key={n}
                 onClick={() => toggleNumber(n)}
-                className={`aspect-square rounded-xl text-xs font-black transition-all ${selectedNumbers.includes(n) ? 'bg-yellow-500 text-black scale-110' : 'bg-slate-950 text-slate-600 border border-slate-800'}`}
+                className={`aspect-square rounded-xl text-xs font-black transition-all ${selectedNumbers.includes(n) ? 'bg-yellow-500 text-black scale-110 shadow-lg shadow-yellow-500/20' : 'bg-slate-950 text-slate-600 border border-slate-800'}`}
               >
                 {n}
               </button>
@@ -252,55 +247,13 @@ export default function Home() {
           <button
             onClick={handleSubmit}
             disabled={loading || selectedNumbers.length !== 5 || ticketCount <= 0}
-            className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black uppercase tracking-widest disabled:bg-slate-800 disabled:text-slate-600 transition-all"
+            className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black uppercase tracking-widest disabled:bg-slate-800 disabled:text-slate-600 transition-all active:scale-95"
           >
             {ticketCount <= 0 ? 'Need Tickets' : 'Submit Entry'}
           </button>
         </section>
 
-{/* 1. 당첨 번호 표시 섹션 (새로 추가할 부분) */}
-<section className="bg-slate-900 p-6 rounded-[2rem] border border-yellow-500/20 shadow-[0_0_20px_rgba(234,179,8,0.05)]">
-  <div className="flex justify-between items-center mb-4">
-    <div className="flex items-center gap-2">
-      {/* 깜빡이는 효과로 생동감 부여 */}
-      <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
-      <h3 className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">
-        Last Winning Numbers
-      </h3>
-    </div>
-    <span className="text-[9px] text-slate-500 font-mono italic">Daily 21:00 Draw</span>
-  </div>
-  
-  <div className="flex justify-center gap-3">
-    {winningNumbers && winningNumbers.length > 0 ? (
-      winningNumbers.map((num, idx) => (
-        <div 
-          key={idx} 
-          className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 text-black flex items-center justify-center font-black text-sm shadow-lg shadow-yellow-900/20"
-        >
-          {num}
-        </div>
-      ))
-    ) : (
-      <div className="py-2 text-slate-600 text-[10px] font-bold uppercase tracking-tighter">
-        Loading Draw Results...
-      </div>
-    )}
-  </div>
-</section>
-
-{/* 2. 번호 선택판 (기존 코드 위치) */}
-<section className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl mt-6">
-  <div className="flex justify-between items-center mb-6">
-    <h3 className="text-xs font-black uppercase tracking-widest text-white/50">Pick 5 Numbers</h3>
-    <button onClick={handleAutoSelect} className="text-[10px] font-black text-yellow-500 underline uppercase">
-      Auto Select
-    </button>
-  </div>
-  {/* ... 번호 그리드 및 Submit 버튼 ... */}
-</section>
-
-        {/* 응모 내역 */}
+        {/* 6. 응모 내역 */}
         <section className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-2xl">
           <h3 className="text-xs font-black text-white uppercase tracking-widest mb-6">History</h3>
           <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
@@ -323,15 +276,16 @@ export default function Home() {
                     );
                   })}
                 </div>
-                <div className="text-right text-[8px] text-slate-700 font-mono">
+                <div className="text-right text-[8px] text-slate-700 font-mono uppercase">
                   {new Date(h.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             )) : (
-              <div className="py-10 text-center text-slate-600 text-xs font-bold uppercase">No entries</div>
+              <div className="py-10 text-center text-slate-600 text-xs font-bold uppercase">No entries yet</div>
             )}
           </div>
         </section>
+
       </div>
     </div>
   );
