@@ -15,29 +15,36 @@ export default function Home() {
 
   // --- [초기 로드 및 인증 감시] ---
   useEffect(() => {
+    // 1. 초기 세션 확인 (앱 로드 시 1회 실행)
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         setUser(session.user);
         await fetchUserData(session.user.id);
+      } else {
+        setUser(null); // 세션 없으면 유저 초기화
       }
     };
     init();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
+  
+    // 2. 인증 상태 변화 감지 (로그인, 로그아웃, 토큰 갱신 등)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
         setUser(session.user);
         await fetchUserData(session.user.id);
-      } else {
+      } else if (event === 'SIGNED_OUT') {
+        // 로그아웃 시 모든 상태 초기화
         setUser(null);
         setTicketCount(0);
-        setAdsToday(0);
         setHistory([]);
+        setAdsToday(0);
       }
     });
-
-    fetchGlobalData();
-    return () => authListener.subscription.unsubscribe();
+  
+    // 3. 컴포넌트 언마운트 시 구독 해제 (메모리 누수 방지)
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // --- [데이터 통신 함수] ---
