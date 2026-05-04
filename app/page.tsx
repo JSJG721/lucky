@@ -258,6 +258,48 @@ export default function Home() {
           </button>
         </section>
 
+{/* 1. 당첨 번호 표시 섹션 (새로 추가할 부분) */}
+<section className="bg-slate-900 p-6 rounded-[2rem] border border-yellow-500/20 shadow-[0_0_20px_rgba(234,179,8,0.05)]">
+  <div className="flex justify-between items-center mb-4">
+    <div className="flex items-center gap-2">
+      {/* 깜빡이는 효과로 생동감 부여 */}
+      <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
+      <h3 className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">
+        Last Winning Numbers
+      </h3>
+    </div>
+    <span className="text-[9px] text-slate-500 font-mono italic">Daily 21:00 Draw</span>
+  </div>
+  
+  <div className="flex justify-center gap-3">
+    {winningNumbers && winningNumbers.length > 0 ? (
+      winningNumbers.map((num, idx) => (
+        <div 
+          key={idx} 
+          className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 text-black flex items-center justify-center font-black text-sm shadow-lg shadow-yellow-900/20"
+        >
+          {num}
+        </div>
+      ))
+    ) : (
+      <div className="py-2 text-slate-600 text-[10px] font-bold uppercase tracking-tighter">
+        Loading Draw Results...
+      </div>
+    )}
+  </div>
+</section>
+
+{/* 2. 번호 선택판 (기존 코드 위치) */}
+<section className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl mt-6">
+  <div className="flex justify-between items-center mb-6">
+    <h3 className="text-xs font-black uppercase tracking-widest text-white/50">Pick 5 Numbers</h3>
+    <button onClick={handleAutoSelect} className="text-[10px] font-black text-yellow-500 underline uppercase">
+      Auto Select
+    </button>
+  </div>
+  {/* ... 번호 그리드 및 Submit 버튼 ... */}
+</section>
+
         {/* 응모 내역 */}
         <section className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-2xl">
           <h3 className="text-xs font-black text-white uppercase tracking-widest mb-6">History</h3>
