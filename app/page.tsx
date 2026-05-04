@@ -165,10 +165,28 @@ export default function Home() {
 
   const checkIsWinning = (createdAt: string, num: number) => {
     if (!winningNumbers || winningNumbers.length === 0) return false;
+  
     const entryDate = new Date(createdAt);
+    const now = new Date();
+    
+    // 1. 응모 날짜의 기준점(밤 9시) 설정
     const cutoffTime = new Date(entryDate);
     cutoffTime.setHours(21, 0, 0, 0);
-    if (entryDate >= cutoffTime) return false;
+  
+    // 2. [미래 티켓 방지] 밤 9시 이후에 응모한 티켓은 '다음 날' 추첨용입니다.
+    // 현재 표시 중인 '어제/오늘 당첨번호'와 일치하더라도 노란색으로 표시하면 안 됩니다.
+    if (entryDate >= cutoffTime) {
+      return false; 
+    }
+  
+    // 3. [과거 티켓 방지] 응모한 지 24시간이 훨씬 지난 아주 오래된 티켓인가요?
+    // 현재 winningNumbers는 '최신 회차'이므로, 날짜가 다른 과거 내역까지 노랗게 변하는 걸 막습니다.
+    const diffInHours = (now.getTime() - entryDate.getTime()) / (1000 * 60 * 60);
+    if (diffInHours > 48) { 
+      return false; // 48시간 이상 지난 내역은 현재 당첨번호와 비교하지 않음
+    }
+  
+    // 4. 위 조건을 모두 통과한(즉, 이번 회차에 해당할 가능성이 높은) 번호만 비교
     return winningNumbers.includes(num);
   };
 
