@@ -78,6 +78,10 @@ export default function Home() {
       .limit(1);
     if (wins && wins.length > 0) setWinningNumbers(wins[0].numbers);
   };
+  useEffect(() => {
+    // 테스트용: 데이터가 안 오면 강제로 넣어봄
+    // setWinningNumbers([1, 2, 3, 4, 5]); 
+  }, []);
 
   // --- [액션 함수: 로그인/로그아웃/광고/응모] ---
   const handleLogin = async () => {
