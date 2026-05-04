@@ -70,19 +70,21 @@ export default function Home() {
     if (userDraws) setHistory(userDraws);
   };
 
-  const fetchGlobalData = async () => {
-    const { data: wins } = await supabase
-      .from('winning_numbers')
-      .select('*')
-      .order('draw_date', { ascending: false })
-      .limit(1);
-    
-    // DB에서 가져온 숫자가 문자열일 경우를 대비해 Number로 변환 처리
-    if (wins && wins.length > 0) {
-      const nums = wins[0].numbers.map((n: any) => Number(n));
-      setWinningNumbers(nums);
-    }
-  };
+ // 상태 추가
+const [currentRound, setCurrentRound] = useState<number | null>(null);
+
+const fetchGlobalData = async () => {
+  const { data: wins } = await supabase
+    .from('winning_numbers')
+    .select('*')
+    .order('draw_date', { ascending: false })
+    .limit(1);
+  
+  if (wins && wins.length > 0) {
+    setWinningNumbers(wins[0].numbers.map((n: any) => Number(n)));
+    setCurrentRound(wins[0].round); // 현재 DB에 등록된 최신 회차 저장
+  }
+};
 
   // --- [액션 함수] ---
   const handleLogin = async () => {
@@ -126,12 +128,13 @@ export default function Home() {
   };
 
   const handleSubmit = async () => {
-    if (!user || ticketCount <= 0 || selectedNumbers.length !== 5) return;
+    if (!user || ticketCount <= 0 || selectedNumbers.length !== 5 || !currentRound) return;
     setLoading(true);
     
     const { error: drawError } = await supabase.from('lucky_draws').insert({ 
       user_id: user.id, 
-      selected_numbers: selectedNumbers 
+      selected_numbers: selectedNumbers,
+      round: currentRound // 응모 시점의 회차를 함께 기록
     });
 
     if (!drawError) {
@@ -163,32 +166,20 @@ export default function Home() {
     setSelectedNumbers(randomNums.sort((a, b) => a - b));
   };
 
-  const checkIsWinning = (createdAt: string, num: number) => {
-    if (!winningNumbers || winningNumbers.length === 0) return false;
-  
-    const entryDate = new Date(createdAt);
-    const now = new Date();
-    
-    // 1. 응모 날짜의 기준점(밤 9시) 설정
-    const cutoffTime = new Date(entryDate);
-    cutoffTime.setHours(21, 0, 0, 0);
-  
-    // 2. [미래 티켓 방지] 밤 9시 이후에 응모한 티켓은 '다음 날' 추첨용입니다.
-    // 현재 표시 중인 '어제/오늘 당첨번호'와 일치하더라도 노란색으로 표시하면 안 됩니다.
-    if (entryDate >= cutoffTime) {
-      return false; 
-    }
-  
-    // 3. [과거 티켓 방지] 응모한 지 24시간이 훨씬 지난 아주 오래된 티켓인가요?
-    // 현재 winningNumbers는 '최신 회차'이므로, 날짜가 다른 과거 내역까지 노랗게 변하는 걸 막습니다.
-    const diffInHours = (now.getTime() - entryDate.getTime()) / (1000 * 60 * 60);
-    if (diffInHours > 48) { 
-      return false; // 48시간 이상 지난 내역은 현재 당첨번호와 비교하지 않음
-    }
-  
-    // 4. 위 조건을 모두 통과한(즉, 이번 회차에 해당할 가능성이 높은) 번호만 비교
-    return winningNumbers.includes(num);
-  };
+ // 기존에 169번 줄부터 191번 줄까지 있던 내용을 모두 지우고 이것만 넣으세요
+ const checkIsWinning = (entryRound: number | null, num: number) => {
+  // 1. 당첨 번호 데이터가 없거나, 현재 회차 정보(currentRound)가 없으면 검사 안 함
+  if (!winningNumbers || winningNumbers.length === 0 || !currentRound) return false;
+
+  // 2. 내 티켓의 회차(entryRound)가 현재 당첨 회차(currentRound)와 다르면 false
+  // 즉, 어제 응모한 건 어제 회차일 테니 오늘 당첨 번호와 비교하지 않게 됩니다.
+  if (!entryRound || entryRound !== currentRound) {
+    return false;
+  }
+
+  // 3. 회차가 일치할 때만 숫자가 포함되어 있는지 확인
+  return winningNumbers.includes(num);
+};
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 font-sans pb-10">
