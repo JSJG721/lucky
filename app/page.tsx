@@ -12,13 +12,14 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [winningNumbers, setWinningNumbers] = useState<number[]>([]);
+  const [currentRound, setCurrentRound] = useState<number | null>(null);
 
   // --- [초기 로드 및 인증 감시] ---
   useEffect(() => {
     const init = async () => {
       const { data: { session }, error } = await supabase.auth.getSession();
       
-      // 세션이 없거나 에러가 있으면 유저 정보를 null로 강제 초기화
+      // 세션이 없거나 에러가 있으면 유저 정보를 null로 강제 초기화 (로그아웃 버튼 버그 방지)
       if (error || !session) {
         setUser(null);
       } else {
@@ -70,21 +71,18 @@ export default function Home() {
     if (userDraws) setHistory(userDraws);
   };
 
- // 상태 추가
-const [currentRound, setCurrentRound] = useState<number | null>(null);
-
-const fetchGlobalData = async () => {
-  const { data: wins } = await supabase
-    .from('winning_numbers')
-    .select('*')
-    .order('draw_date', { ascending: false })
-    .limit(1);
-  
-  if (wins && wins.length > 0) {
-    setWinningNumbers(wins[0].numbers.map((n: any) => Number(n)));
-    setCurrentRound(wins[0].round); // 현재 DB에 등록된 최신 회차 저장
-  }
-};
+  const fetchGlobalData = async () => {
+    const { data: wins } = await supabase
+      .from('winning_numbers')
+      .select('*')
+      .order('draw_date', { ascending: false })
+      .limit(1);
+    
+    if (wins && wins.length > 0) {
+      setWinningNumbers(wins[0].numbers.map((n: any) => Number(n)));
+      setCurrentRound(wins[0].round); // DB에서 가져온 최신 회차 저장
+    }
+  };
 
   // --- [액션 함수] ---
   const handleLogin = async () => {
@@ -97,12 +95,12 @@ const fetchGlobalData = async () => {
   const handleLogout = async () => {
     setLoading(true);
     try {
-      // scope: 'local'은 서버 통신 없이 로컬 데이터만 삭제하므로 더 안전합니다.
+      // 로컬 세션을 우선적으로 삭제하여 즉시 반영
       await supabase.auth.signOut({ scope: 'local' });
     } catch (error) {
       console.error("Logout Error:", error);
     } finally {
-      // 에러 여부와 상관없이 UI는 로그인 전 상태로 강제 전환
+      // 상태 강제 초기화 (무한 WAIT 방지)
       setUser(null);
       setTicketCount(0);
       setAdsToday(0);
@@ -128,13 +126,20 @@ const fetchGlobalData = async () => {
   };
 
   const handleSubmit = async () => {
-    if (!user || ticketCount <= 0 || selectedNumbers.length !== 5 || !currentRound) return;
+    if (!currentRound) {
+      alert('회차 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
+      await fetchGlobalData();
+      return;
+    }
+
+    if (!user || ticketCount <= 0 || selectedNumbers.length !== 5) return;
+    
     setLoading(true);
     
     const { error: drawError } = await supabase.from('lucky_draws').insert({ 
       user_id: user.id, 
       selected_numbers: selectedNumbers,
-      round: currentRound // 응모 시점의 회차를 함께 기록
+      round: currentRound // 현재 회차 정보를 함께 저장
     });
 
     if (!drawError) {
@@ -145,6 +150,9 @@ const fetchGlobalData = async () => {
       alert('응모 완료!');
       setSelectedNumbers([]);
       await fetchUserData(user.id);
+    } else {
+      console.error("Submit Error:", drawError);
+      alert("응모 실패: " + drawError.message);
     }
     setLoading(false);
   };
@@ -166,20 +174,19 @@ const fetchGlobalData = async () => {
     setSelectedNumbers(randomNums.sort((a, b) => a - b));
   };
 
- // 기존에 169번 줄부터 191번 줄까지 있던 내용을 모두 지우고 이것만 넣으세요
- const checkIsWinning = (entryRound: number | null, num: number) => {
-  // 1. 당첨 번호 데이터가 없거나, 현재 회차 정보(currentRound)가 없으면 검사 안 함
-  if (!winningNumbers || winningNumbers.length === 0 || !currentRound) return false;
+  // --- [당첨 확인 로직] ---
+  const checkIsWinning = (entryRound: number | null, num: number) => {
+    // 1. 당첨번호나 현재회차 정보가 없으면 false
+    if (!winningNumbers || winningNumbers.length === 0 || !currentRound) return false;
 
-  // 2. 내 티켓의 회차(entryRound)가 현재 당첨 회차(currentRound)와 다르면 false
-  // 즉, 어제 응모한 건 어제 회차일 테니 오늘 당첨 번호와 비교하지 않게 됩니다.
-  if (!entryRound || entryRound !== currentRound) {
-    return false;
-  }
+    // 2. 티켓의 회차와 현재 발표된 회차가 다르면 당첨 표시 안 함 (어제 번호 방지)
+    if (!entryRound || entryRound !== currentRound) {
+      return false;
+    }
 
-  // 3. 회차가 일치할 때만 숫자가 포함되어 있는지 확인
-  return winningNumbers.includes(num);
-};
+    // 3. 같은 회차일 때만 숫자 포함 여부 확인
+    return winningNumbers.includes(num);
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 font-sans pb-10">
@@ -201,14 +208,14 @@ const fetchGlobalData = async () => {
           )}
         </header>
 
-        {/* 2. 당첨 번호 표시 (최상단 배치) */}
+        {/* 2. 당첨 번호 표시 */}
         <section className="bg-slate-900 p-6 rounded-[2rem] border border-yellow-500/20 shadow-[0_0_20px_rgba(234,179,8,0.05)]">
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
               <h3 className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Last Winning Numbers</h3>
             </div>
-            <span className="text-[9px] text-slate-500 font-mono italic">Daily 21:00 Draw</span>
+            <span className="text-[9px] text-slate-500 font-mono italic">ROUND {currentRound}</span>
           </div>
           <div className="flex justify-center gap-3">
             {winningNumbers.length > 0 ? (
@@ -280,7 +287,8 @@ const fetchGlobalData = async () => {
               <div key={i} className="p-4 bg-slate-950 rounded-3xl border border-slate-800 flex justify-between items-center">
                 <div className="flex gap-2">
                   {h.selected_numbers.map((num: number, idx: number) => {
-                    const matched = checkIsWinning(h.created_at, num);
+                    // [핵심 수정] h.created_at 대신 h.round를 인자로 전달
+                    const matched = checkIsWinning(h.round, num);
                     return (
                       <span 
                         key={idx} 
@@ -295,8 +303,11 @@ const fetchGlobalData = async () => {
                     );
                   })}
                 </div>
-                <div className="text-right text-[8px] text-slate-700 font-mono uppercase">
-                  {new Date(h.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div className="text-right">
+                  <div className="text-[7px] text-yellow-500/50 font-mono mb-1">RD-{h.round || 'OLD'}</div>
+                  <div className="text-[8px] text-slate-700 font-mono uppercase">
+                    {new Date(h.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </div>
               </div>
             )) : (
