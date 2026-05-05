@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/src/lib/supabase';
 
 export default function Home() {
-  // --- [상태 관리] ---
   const [user, setUser] = useState<any>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [ticketCount, setTicketCount] = useState(0);
@@ -15,29 +14,29 @@ export default function Home() {
   const [winningNumbers, setWinningNumbers] = useState<number[]>([]);
   const [currentRound, setCurrentRound] = useState<number | null>(null);
 
-  // --- [데이터 로드 함수들] ---
+  // 1. 회차 및 당첨 번호 로드 (최우선 순위)
   const fetchGlobalData = useCallback(async () => {
     try {
-      const { data: wins, error } = await supabase
+      const { data, error } = await supabase
         .from('winning_numbers')
         .select('round, numbers')
         .order('round', { ascending: false })
-        .limit(1);
+        .limit(1)
+        .maybeSingle(); // 에러 방지를 위해 maybeSingle 사용
       
-      if (error) throw error;
-
-      if (wins && wins.length > 0) {
-        setWinningNumbers(wins[0].numbers.map((n: any) => Number(n)));
-        setCurrentRound(Number(wins[0].round)); // 확실하게 숫자로 형변환
-        return Number(wins[0].round);
+      if (data) {
+        setWinningNumbers(data.numbers.map((n: any) => Number(n)));
+        setCurrentRound(Number(data.round));
+        return Number(data.round);
       }
       return null;
     } catch (e) {
-      console.error("Global data fetch error", e);
+      console.error("Global Data Load Error:", e);
       return null;
     }
   }, []);
 
+  // 2. 유저 밸런스 및 응모 내역 로드
   const fetchUserData = useCallback(async (userId: string) => {
     try {
       const { data: balance } = await supabase
@@ -59,49 +58,66 @@ export default function Home() {
       
       if (userDraws) setHistory(userDraws);
     } catch (e) {
-      console.error("User data fetch error", e);
+      console.error("User Data Load Error:", e);
     }
   }, []);
 
-  // --- [초기화 효과] ---
+  // 3. 초기 세션 체크 및 초기화
   useEffect(() => {
     const init = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        // 1. 전역 데이터(회차 정보)부터 가져오기
+        // 회차 정보부터 로드
         await fetchGlobalData();
+
+        // 세션 확인
+        const { data: { session }, error } = await supabase.auth.getSession();
         
-        // 2. 로그인 세션이 있으면 유저 정보 가져오기
-        if (session?.user) {
+        if (error || !session) {
+          // 세션 에러가 있거나 없으면 로컬 스토리지 정리 (무한 로딩 방지)
+          localStorage.removeItem('sb-yodtvsql...-auth-token'); // 본인의 supabase 프로젝트 ID가 포함된 키
+          setUser(null);
+        } else {
           setUser(session.user);
           await fetchUserData(session.user.id);
         }
-      } catch (error) {
-        console.error("Init error:", error);
+      } catch (e) {
+        console.error("Init logic error:", e);
       } finally {
-        setTimeout(() => setIsInitialLoading(false), 600);
+        setIsInitialLoading(false);
       }
     };
 
     init();
-  
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
+      if (event === 'SIGNED_IN' && session) {
         setUser(session.user);
         await fetchUserData(session.user.id);
       } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setTicketCount(0);
-        setHistory([]);
-        setAdsToday(0);
+        handleStateReset();
       }
     });
-  
+
     return () => subscription.unsubscribe();
   }, [fetchGlobalData, fetchUserData]);
 
+  // 상태 초기화 함수
+  const handleStateReset = () => {
+    setUser(null);
+    setTicketCount(0);
+    setAdsToday(0);
+    setHistory([]);
+    setSelectedNumbers([]);
+    // 로컬 스토리지 강제 정리 (이게 핵심입니다)
+    Object.keys(localStorage).forEach(key => {
+      if (key.includes('supabase.auth.token') || key.includes('-auth-token')) {
+        localStorage.removeItem(key);
+      }
+    });
+  };
+
   // --- [액션 핸들러] ---
+
   const handleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -112,36 +128,39 @@ export default function Home() {
   const handleLogout = async () => {
     setLoading(true);
     try {
-      await supabase.auth.signOut({ scope: 'local' });
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error("Sign out error:", e);
     } finally {
-      setUser(null);
-      setTicketCount(0);
-      setAdsToday(0);
-      setHistory([]);
+      handleStateReset();
       setLoading(false);
+      window.location.reload(); // 세션 완전 초기화를 위해 새로고침
     }
   };
 
   const handleWatchAd = async () => {
     if (!user) return alert('로그인이 필요합니다.');
     setLoading(true);
-    const { data }: any = await supabase.rpc('reward_ad_tickets', { 
-      target_user_id: user.id 
-    });
-
-    if (data?.success) {
-      alert(data.message);
-      await fetchUserData(user.id);
-    } else {
-      alert(data?.message || '보상 지급 실패');
+    try {
+      const { data }: any = await supabase.rpc('reward_ad_tickets', { 
+        target_user_id: user.id 
+      });
+      if (data?.success) {
+        alert(data.message);
+        await fetchUserData(user.id);
+      } else {
+        alert(data?.message || '광고 보상 실패');
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSubmit = async () => {
+    if (loading) return;
     setLoading(true);
-    
-    // [강화된 부분] 응모 시점에 회차 정보가 없으면 다시 한번 즉시 호출
+
+    // 회차 정보 재확인
     let activeRound = currentRound;
     if (!activeRound) {
       activeRound = await fetchGlobalData();
@@ -153,31 +172,36 @@ export default function Home() {
       return;
     }
 
-    if (!user || ticketCount <= 0 || selectedNumbers.length !== 5) {
-      alert('번호 5개를 선택하고 티켓이 있는지 확인해주세요.');
-      setLoading(false);
-      return;
-    }
-    
-    const { error: drawError } = await supabase.from('lucky_draws').insert({ 
-      user_id: user.id, 
-      selected_numbers: selectedNumbers,
-      round: activeRound
-    });
+    if (!user) return alert('로그인이 필요합니다.');
+    if (ticketCount <= 0) return alert('응모권이 부족합니다.');
+    if (selectedNumbers.length !== 5) return alert('번호 5개를 선택해주세요.');
 
-    if (!drawError) {
-      await supabase.from('user_balances').update({ 
-        ticket_count: ticketCount - 1 
-      }).eq('id', user.id);
-      
-      alert('응모가 완료되었습니다!');
-      setSelectedNumbers([]);
-      await fetchUserData(user.id);
-    } else {
-      alert('응모 처리 중 오류가 발생했습니다.');
+    try {
+      const { error: drawError } = await supabase.from('lucky_draws').insert({ 
+        user_id: user.id, 
+        selected_numbers: selectedNumbers,
+        round: activeRound
+      });
+
+      if (!drawError) {
+        await supabase.from('user_balances').update({ 
+          ticket_count: ticketCount - 1 
+        }).eq('id', user.id);
+        
+        alert('응모 완료!');
+        setSelectedNumbers([]);
+        await fetchUserData(user.id);
+      } else {
+        throw drawError;
+      }
+    } catch (e) {
+      alert('응모 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
+  // --- [UI 부분 생략 없이 유지] ---
 
   const toggleNumber = (n: number) => {
     if (selectedNumbers.includes(n)) {
@@ -201,12 +225,11 @@ export default function Home() {
     return Number(entryRound) === Number(currentRound) && winningNumbers.includes(num);
   };
 
-  // --- [UI 렌더링] ---
   if (isInitialLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4 font-sans">
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
         <div className="w-10 h-10 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-yellow-500 font-black italic animate-pulse tracking-widest">CONNECTING...</p>
+        <p className="text-yellow-500 font-black italic">LOADING SESSION...</p>
       </div>
     );
   }
@@ -214,8 +237,6 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 font-sans pb-10">
       <div className="max-w-md mx-auto space-y-6">
-        
-        {/* 헤더 */}
         <header className="flex justify-between items-center py-2">
           <h1 className="text-xl font-black text-yellow-500 italic uppercase tracking-tighter">Lucky 5/28</h1>
           {!user ? (
@@ -225,22 +246,20 @@ export default function Home() {
           )}
         </header>
 
-        {/* 당첨 번호 */}
-        <section className="bg-slate-900 p-6 rounded-[2rem] border border-yellow-500/20 shadow-lg relative overflow-hidden">
-          <div className="flex justify-between items-center mb-4 relative z-10">
+        <section className="bg-slate-900 p-6 rounded-[2rem] border border-yellow-500/20 shadow-lg">
+          <div className="flex justify-between items-center mb-4">
             <h3 className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Winning Numbers</h3>
             <span className="text-[9px] text-slate-500 font-mono italic">ROUND {currentRound || '??'}</span>
           </div>
-          <div className="flex justify-center gap-3 relative z-10">
-            {winningNumbers.map((num, idx) => (
+          <div className="flex justify-center gap-3">
+            {winningNumbers.length > 0 ? winningNumbers.map((num, idx) => (
               <div key={idx} className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 text-black flex items-center justify-center font-black text-sm shadow-lg">
                 {num}
               </div>
-            ))}
+            )) : <div className="text-slate-500 text-xs">정보를 불러오는 중...</div>}
           </div>
         </section>
 
-        {/* 내 정보 */}
         {user && (
           <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 flex justify-between items-center">
             <div>
@@ -254,16 +273,14 @@ export default function Home() {
           </div>
         )}
 
-        {/* 광고 버튼 */}
         <button 
           onClick={handleWatchAd}
           disabled={loading || !user || adsToday >= 20}
-          className="w-full py-4 bg-yellow-500 text-black rounded-2xl font-black text-sm disabled:bg-slate-800 disabled:text-slate-600 shadow-lg active:scale-95 transition-all"
+          className="w-full py-4 bg-yellow-500 text-black rounded-2xl font-black text-sm disabled:bg-slate-800 disabled:text-slate-600 shadow-lg"
         >
           {adsToday >= 20 ? 'DAILY LIMIT REACHED' : 'WATCH AD (+5 TICKETS)'}
         </button>
 
-        {/* 번호 선택 */}
         <section className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xs font-black uppercase tracking-widest text-white/50">Pick 5 Numbers</h3>
@@ -283,47 +300,41 @@ export default function Home() {
           <button
             onClick={handleSubmit}
             disabled={loading || selectedNumbers.length !== 5 || ticketCount <= 0}
-            className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black uppercase tracking-widest disabled:bg-slate-800 disabled:text-slate-600 active:scale-95 transition-all"
+            className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black uppercase tracking-widest disabled:bg-slate-800 disabled:text-slate-600 shadow-xl"
           >
             {ticketCount <= 0 ? 'Need Tickets' : 'Submit Entry'}
           </button>
         </section>
 
-        {/* 응모 기록 */}
         <section className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-2xl">
           <h3 className="text-xs font-black text-white uppercase tracking-widest mb-6">History</h3>
           <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
-            {history.length > 0 ? (
-              history.map((h, i) => (
-                <div key={i} className="p-4 bg-slate-950 rounded-3xl border border-slate-800 flex justify-between items-center">
-                  <div className="flex gap-2">
-                    {h.selected_numbers.map((num: number, idx: number) => (
-                      <span 
-                        key={idx} 
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-black border transition-all ${
-                          checkIsWinning(h.round, num) 
-                            ? 'bg-yellow-500 border-yellow-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.4)]' 
-                            : 'bg-slate-900 border-slate-800 text-slate-500'
-                        }`}
-                      >
-                        {num}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[7px] text-yellow-500/50 font-mono mb-1">RD-{h.round}</div>
-                    <div className="text-[8px] text-slate-700 font-mono">
-                      {new Date(h.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </div>
+            {history.map((h, i) => (
+              <div key={i} className="p-4 bg-slate-950 rounded-3xl border border-slate-800 flex justify-between items-center">
+                <div className="flex gap-2">
+                  {h.selected_numbers.map((num: number, idx: number) => (
+                    <span 
+                      key={idx} 
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-black border transition-all ${
+                        checkIsWinning(h.round, num) 
+                          ? 'bg-yellow-500 border-yellow-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.4)]' 
+                          : 'bg-slate-900 border-slate-800 text-slate-500'
+                      }`}
+                    >
+                      {num}
+                    </span>
+                  ))}
+                </div>
+                <div className="text-right">
+                  <div className="text-[7px] text-yellow-500/50 font-mono mb-1">RD-{h.round}</div>
+                  <div className="text-[8px] text-slate-700 font-mono">
+                    {new Date(h.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
-              ))
-            ) : (
-              <div className="py-10 text-center text-slate-600 text-xs font-bold uppercase italic">No entries yet</div>
-            )}
+              </div>
+            ))}
           </div>
         </section>
-
       </div>
     </div>
   );
