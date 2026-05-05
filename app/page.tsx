@@ -19,26 +19,29 @@ export default function Home() {
   useEffect(() => {
     const init = async () => {
       try {
-        // 1. 현재 세션을 가져옴 (새로고침 시 로그인 유지의 핵심)
+        // 1. 세션 확인
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user) {
           setUser(session.user);
+          // 유저 데이터 로드 중 에러가 나도 로딩은 풀려야 하므로 try-catch 분리 가능
           await fetchUserData(session.user.id);
         }
         
-        // 2. 전역 당첨 데이터 로드
+        // 2. 전역 데이터 로드 (await를 걸어 순차 진행)
         await fetchGlobalData();
+        
       } catch (error) {
-        console.error("Init error:", error);
+        console.error("초기화 에러:", error);
       } finally {
-        // 모든 확인이 끝난 후에만 화면을 보여줌
+        // [중요] 어떤 경우에도 로딩은 꺼지도록 보장
         setIsInitialLoading(false);
       }
     };
 
     init();
   
+    // 인증 상태 변경 감시
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         setUser(session.user);
@@ -51,9 +54,7 @@ export default function Home() {
       }
     });
   
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   // --- [데이터 통신 함수] ---
@@ -78,16 +79,28 @@ export default function Home() {
     if (userDraws) setHistory(userDraws);
   };
 
+  // --- [전역 데이터 로드 함수 수정] ---
   const fetchGlobalData = async () => {
-    const { data: wins } = await supabase
-      .from('winning_numbers')
-      .select('*')
-      .order('draw_date', { ascending: false })
-      .limit(1);
-    
-    if (wins && wins.length > 0) {
-      setWinningNumbers(wins[0].numbers.map((n: any) => Number(n)));
-      setCurrentRound(wins[0].round);
+    try {
+      const { data: wins, error } = await supabase
+        .from('winning_numbers')
+        .select('*')
+        .order('draw_date', { ascending: false })
+        .limit(1); // .single() 대신 limit(1) 사용이 더 안전합니다.
+      
+      if (error) throw error;
+
+      if (wins && wins.length > 0) {
+        setWinningNumbers(wins[0].numbers.map((n: any) => Number(n)));
+        setCurrentRound(wins[0].round);
+      } else {
+        // 만약 데이터가 하나도 없다면 기본값 설정 (에러 방지)
+        console.warn("등록된 당첨 번호가 없습니다.");
+        setWinningNumbers([]);
+        setCurrentRound(0); 
+      }
+    } catch (err) {
+      console.error("Global Data Fetch Error:", err);
     }
   };
 
