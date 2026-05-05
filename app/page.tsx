@@ -6,6 +6,7 @@ import { supabase } from '@/src/lib/supabase';
 export default function Home() {
   // --- [상태 관리] ---
   const [user, setUser] = useState<any>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true); // 새로고침 시 초기 로딩 상태 추가
   const [ticketCount, setTicketCount] = useState(0);
   const [adsToday, setAdsToday] = useState(0);
   const [selectedNumbers, setSelectedNumbers] = useState<number[]>([]);
@@ -17,18 +18,25 @@ export default function Home() {
   // --- [초기 로드 및 인증 감시] ---
   useEffect(() => {
     const init = async () => {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
-      // 세션이 없거나 에러가 있으면 유저 정보를 null로 강제 초기화 (로그아웃 버튼 버그 방지)
-      if (error || !session) {
-        setUser(null);
-      } else {
-        setUser(session.user);
-        await fetchUserData(session.user.id);
+      try {
+        // 1. 현재 세션을 가져옴 (새로고침 시 로그인 유지의 핵심)
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user) {
+          setUser(session.user);
+          await fetchUserData(session.user.id);
+        }
+        
+        // 2. 전역 당첨 데이터 로드
+        await fetchGlobalData();
+      } catch (error) {
+        console.error("Init error:", error);
+      } finally {
+        // 모든 확인이 끝난 후에만 화면을 보여줌
+        setIsInitialLoading(false);
       }
-      
-      await fetchGlobalData();
     };
+
     init();
   
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -40,7 +48,6 @@ export default function Home() {
         setTicketCount(0);
         setHistory([]);
         setAdsToday(0);
-        setLoading(false);
       }
     });
   
@@ -80,7 +87,7 @@ export default function Home() {
     
     if (wins && wins.length > 0) {
       setWinningNumbers(wins[0].numbers.map((n: any) => Number(n)));
-      setCurrentRound(wins[0].round); // DB에서 가져온 최신 회차 저장
+      setCurrentRound(wins[0].round);
     }
   };
 
@@ -95,12 +102,8 @@ export default function Home() {
   const handleLogout = async () => {
     setLoading(true);
     try {
-      // 로컬 세션을 우선적으로 삭제하여 즉시 반영
       await supabase.auth.signOut({ scope: 'local' });
-    } catch (error) {
-      console.error("Logout Error:", error);
     } finally {
-      // 상태 강제 초기화 (무한 WAIT 방지)
       setUser(null);
       setTicketCount(0);
       setAdsToday(0);
@@ -112,13 +115,13 @@ export default function Home() {
   const handleWatchAd = async () => {
     if (!user) return alert('로그인이 필요합니다.');
     setLoading(true);
-    const { data, error }: any = await supabase.rpc('reward_ad_tickets', { 
+    const { data }: any = await supabase.rpc('reward_ad_tickets', { 
       target_user_id: user.id 
     });
 
     if (data?.success) {
       alert(data.message);
-      setTimeout(() => fetchUserData(user.id), 500);
+      await fetchUserData(user.id);
     } else {
       alert(data?.message || '보상 지급 실패');
     }
@@ -127,19 +130,17 @@ export default function Home() {
 
   const handleSubmit = async () => {
     if (!currentRound) {
-      alert('회차 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
+      alert('회차 정보를 불러오는 중입니다.');
       await fetchGlobalData();
       return;
     }
-
     if (!user || ticketCount <= 0 || selectedNumbers.length !== 5) return;
     
     setLoading(true);
-    
     const { error: drawError } = await supabase.from('lucky_draws').insert({ 
       user_id: user.id, 
       selected_numbers: selectedNumbers,
-      round: currentRound // 현재 회차 정보를 함께 저장
+      round: currentRound
     });
 
     if (!drawError) {
@@ -150,9 +151,6 @@ export default function Home() {
       alert('응모 완료!');
       setSelectedNumbers([]);
       await fetchUserData(user.id);
-    } else {
-      console.error("Submit Error:", drawError);
-      alert("응모 실패: " + drawError.message);
     }
     setLoading(false);
   };
@@ -174,19 +172,21 @@ export default function Home() {
     setSelectedNumbers(randomNums.sort((a, b) => a - b));
   };
 
-  // --- [당첨 확인 로직] ---
   const checkIsWinning = (entryRound: number | null, num: number) => {
-    // 1. 당첨번호나 현재회차 정보가 없으면 false
-    if (!winningNumbers || winningNumbers.length === 0 || !currentRound) return false;
-
-    // 2. 티켓의 회차와 현재 발표된 회차가 다르면 당첨 표시 안 함 (어제 번호 방지)
-    if (!entryRound || entryRound !== currentRound) {
-      return false;
-    }
-
-    // 3. 같은 회차일 때만 숫자 포함 여부 확인
+    if (!winningNumbers || !currentRound || !entryRound) return false;
+    if (entryRound !== currentRound) return false;
     return winningNumbers.includes(num);
   };
+
+  // --- [로딩 화면 처리가 핵심!] ---
+  if (isInitialLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
+        <div className="w-10 h-10 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-yellow-500 font-black italic animate-pulse">LUCKY 5/28 LOADING...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 font-sans pb-10">
@@ -200,33 +200,25 @@ export default function Home() {
           ) : (
             <button 
               onClick={handleLogout} 
-              disabled={loading}
-              className="text-xs text-slate-500 font-bold underline px-3 py-2 hover:text-white transition-colors"
+              className="text-xs text-slate-500 font-bold underline px-3 py-2"
             >
-              {loading ? 'WAIT...' : 'LOGOUT'}
+              LOGOUT
             </button>
           )}
         </header>
 
         {/* 2. 당첨 번호 표시 */}
-        <section className="bg-slate-900 p-6 rounded-[2rem] border border-yellow-500/20 shadow-[0_0_20px_rgba(234,179,8,0.05)]">
+        <section className="bg-slate-900 p-6 rounded-[2rem] border border-yellow-500/20">
           <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
-              <h3 className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Last Winning Numbers</h3>
-            </div>
+            <h3 className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Last Winning Numbers</h3>
             <span className="text-[9px] text-slate-500 font-mono italic">ROUND {currentRound}</span>
           </div>
           <div className="flex justify-center gap-3">
-            {winningNumbers.length > 0 ? (
-              winningNumbers.map((num, idx) => (
-                <div key={idx} className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 text-black flex items-center justify-center font-black text-sm shadow-lg">
-                  {num}
-                </div>
-              ))
-            ) : (
-              <div className="py-2 text-slate-600 text-[10px] font-bold uppercase italic">Loading results...</div>
-            )}
+            {winningNumbers.map((num, idx) => (
+              <div key={idx} className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 text-black flex items-center justify-center font-black text-sm">
+                {num}
+              </div>
+            ))}
           </div>
         </section>
 
@@ -248,13 +240,13 @@ export default function Home() {
         <button 
           onClick={handleWatchAd}
           disabled={loading || !user || adsToday >= 20}
-          className="w-full py-4 bg-yellow-500 text-black rounded-2xl font-black text-sm disabled:bg-slate-800 disabled:text-slate-600 transition-all shadow-lg shadow-yellow-900/10"
+          className="w-full py-4 bg-yellow-500 text-black rounded-2xl font-black text-sm disabled:bg-slate-800 disabled:text-slate-600 shadow-lg"
         >
           {adsToday >= 20 ? 'DAILY LIMIT REACHED' : 'WATCH AD (+5 TICKETS)'}
         </button>
 
         {/* 5. 번호 선택판 */}
-        <section className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl">
+        <section className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xs font-black uppercase tracking-widest text-white/50">Pick 5 Numbers</h3>
             <button onClick={handleAutoSelect} className="text-[10px] font-black text-yellow-500 underline uppercase">Auto Select</button>
@@ -264,7 +256,7 @@ export default function Home() {
               <button
                 key={n}
                 onClick={() => toggleNumber(n)}
-                className={`aspect-square rounded-xl text-xs font-black transition-all ${selectedNumbers.includes(n) ? 'bg-yellow-500 text-black scale-110 shadow-lg shadow-yellow-500/20' : 'bg-slate-950 text-slate-600 border border-slate-800'}`}
+                className={`aspect-square rounded-xl text-xs font-black transition-all ${selectedNumbers.includes(n) ? 'bg-yellow-500 text-black scale-110 shadow-lg' : 'bg-slate-950 text-slate-600 border border-slate-800'}`}
               >
                 {n}
               </button>
@@ -273,21 +265,20 @@ export default function Home() {
           <button
             onClick={handleSubmit}
             disabled={loading || selectedNumbers.length !== 5 || ticketCount <= 0}
-            className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black uppercase tracking-widest disabled:bg-slate-800 disabled:text-slate-600 transition-all active:scale-95"
+            className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black uppercase tracking-widest disabled:bg-slate-800 disabled:text-slate-600"
           >
             {ticketCount <= 0 ? 'Need Tickets' : 'Submit Entry'}
           </button>
         </section>
 
         {/* 6. 응모 내역 */}
-        <section className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-2xl">
+        <section className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800">
           <h3 className="text-xs font-black text-white uppercase tracking-widest mb-6">History</h3>
           <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
             {history.length > 0 ? history.map((h, i) => (
               <div key={i} className="p-4 bg-slate-950 rounded-3xl border border-slate-800 flex justify-between items-center">
                 <div className="flex gap-2">
                   {h.selected_numbers.map((num: number, idx: number) => {
-                    // [핵심 수정] h.created_at 대신 h.round를 인자로 전달
                     const matched = checkIsWinning(h.round, num);
                     return (
                       <span 
@@ -315,7 +306,6 @@ export default function Home() {
             )}
           </div>
         </section>
-
       </div>
     </div>
   );
