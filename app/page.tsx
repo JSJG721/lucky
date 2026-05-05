@@ -30,28 +30,26 @@ export default function Home() {
     }
   }, []);
 
-  // 회차 정보 로드
   const fetchGlobalData = useCallback(async () => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('winning_numbers')
-        .select('round, numbers')
-        .order('round', { ascending: false })
+        .select('*')
+        .not('round', 'is', null) // [추가] round가 NULL이 아닌 것만 가져오기
+        .order('draw_date', { ascending: false }) // 날짜순으로 정렬
         .limit(1)
         .maybeSingle();
       
       if (data) {
-        const nums = Array.isArray(data.numbers) ? data.numbers.map((n: any) => Number(n)) : [];
-        setWinningNumbers(nums);
+        setWinningNumbers(data.numbers.map((n: any) => Number(n)));
         setCurrentRound(Number(data.round));
         return Number(data.round);
       }
     } catch (e) {
-      console.error(e);
+      console.error("데이터 로드 에러:", e);
     }
     return null;
   }, []);
-
   // 유저 정보 로드
   const fetchUserData = useCallback(async (userId: string) => {
     try {
