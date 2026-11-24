@@ -407,3 +407,39 @@ body {
     align-items: flex-start;
   }
 }
+
+/* ── 액체 따르기 퍼즐 애니메이션 ── */
+@keyframes ws-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.ws-shake { animation: ws-shake 0.35s ease-in-out; }
+
+@keyframes ws-blink {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(253, 230, 138, 0.0); }
+  50% { box-shadow: 0 0 16px 2px rgba(253, 230, 138, 0.6); }
+}
+.ws-blink { animation: ws-blink 1s ease-in-out infinite; }
+
+@keyframes ws-stream {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+.ws-stream { transform-origin: top; animation: ws-stream 0.12s ease-out; }
+
+@keyframes ws-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.ws-pop { animation: ws-pop 0.35s ease-out both; }
+
+@keyframes ws-sparkle {
+  0% { opacity: 0; transform: translateY(6px) scale(0.6); }
+  40% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-14px) scale(1.2); }
+}
+.ws-sparkle { animation: ws-sparkle 0.9s ease-out forwards; }
